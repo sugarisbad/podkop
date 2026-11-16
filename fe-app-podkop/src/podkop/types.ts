@@ -100,6 +100,7 @@ export namespace Podkop {
   }
 
   export interface ConfigProxySelectorSection {
+    subscription_enabled?: string;
     connection_type: 'proxy';
     proxy_config_type: 'selector';
     selector_proxy_links: string[];

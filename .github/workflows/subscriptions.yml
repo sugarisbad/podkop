@@ -1,0 +1,20 @@
+name: Subscription checks
+
+on:
+  push:
+    branches: [feature/subscriptions]
+  pull_request:
+    paths:
+      - 'podkop/files/usr/lib/subscriptions.sh'
+      - 'tests/subscriptions.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  parser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash tests/subscriptions.sh
+      - run: shellcheck --shell=ash --severity=error podkop/files/usr/lib/subscriptions.sh

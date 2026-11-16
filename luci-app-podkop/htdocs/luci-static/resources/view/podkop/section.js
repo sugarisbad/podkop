@@ -2,6 +2,7 @@
 "require form";
 "require baseclass";
 "require ui";
+"require fs";
 "require tools.widgets as widgets";
 "require view.podkop.main as main";
 
@@ -29,6 +30,61 @@ function createSectionContent(section, singBoxFeatures = []) {
   o.value("outbound", _("Outbound Config"));
   o.default = "url";
   o.depends("connection_type", "proxy");
+
+  o = section.option(form.Flag, "subscription_enabled", _("Subscription"),
+    _("Use a subscription as the source of Selector or URLTest links"));
+  o.depends("proxy_config_type", "selector");
+  o.depends("proxy_config_type", "urltest");
+  o.default = "0";
+
+  o = section.option(form.Value, "subscription_url", _("Subscription URL"),
+    _("HTTPS subscription containing plain text or Base64 proxy links"));
+  o.password = true;
+  o.depends("subscription_enabled", "1");
+  o.rmempty = false;
+  o.validate = function (section_id, value) {
+    return /^https:\/\/[^\s"\\]+$/.test(value || "") || _("Enter an HTTPS subscription URL");
+  };
+
+  o = section.option(form.ListValue, "subscription_interval", _("Subscription refresh"));
+  o.value("0", _("Manual only"));
+  o.value("6", _("Every 6 hours"));
+  o.value("12", _("Every 12 hours"));
+  o.value("24", _("Every 24 hours"));
+  o.default = "12";
+  o.depends("subscription_enabled", "1");
+
+  o = section.option(form.DummyValue, "_subscription_status", _("Subscription status"));
+  o.depends("subscription_enabled", "1");
+  o.load = function (section_id) {
+    return fs.exec("/usr/bin/podkop", ["subscription_status", section_id]).then(function (result) {
+      const status = JSON.parse(result.stdout || "{}");
+      return (status.state || "never") +
+        (status.last_success ? " · " + new Date(status.last_success * 1000).toLocaleString() : "");
+    }).catch(function () { return _("Unavailable"); });
+  };
+
+  o = section.option(form.Button, "_subscription_update", _("Update subscription"),
+    _("Save and apply settings first. Uses the saved URL. Invalid updates keep the existing links. Reload this page after a successful update."));
+  o.inputtitle = _("Update now");
+  o.inputstyle = "action";
+  o.depends("subscription_enabled", "1");
+  o.onclick = async function (event, section_id) {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const result = await fs.exec("/usr/bin/podkop", ["subscription_update", section_id]);
+      const status = await fs.exec("/usr/bin/podkop", ["subscription_status", section_id]);
+      const state = JSON.parse(status.stdout || "{}").state || "unknown";
+      ui.addNotification(null, E("p", {}, [
+        (result.code === 0 ? _("Subscription refreshed") : _("Subscription update failed")) + ": " + state,
+      ]), result.code === 0 ? "info" : "error");
+    } catch (error) {
+      ui.addNotification(null, E("p", {}, [_("Subscription update failed")]), "error");
+    } finally {
+      button.disabled = false;
+    }
+  };
 
   o = section.option(
     form.TextValue,

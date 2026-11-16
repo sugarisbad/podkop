@@ -772,7 +772,7 @@ async function getDashboardSections() {
         const outbounds = links.map((link, index) => ({
           link,
           outbound: proxies.find(
-            (item) => item.code === `${section[".name"]}-${index + 1}-out`
+            (item) => item.code === (section.subscription_enabled === "1" ? selector?.value?.all?.[index] : `${section[".name"]}-${index + 1}-out`)
           )
         })).map((item) => ({
           code: item?.outbound?.code || "",

@@ -30,6 +30,7 @@ check_required_file "$PODKOP_LIB/rulesets.sh"
 . "$PODKOP_LIB/sing_box_config_facade.sh"
 . "$PODKOP_LIB/logging.sh"
 . "$PODKOP_LIB/rulesets.sh"
+. "$PODKOP_LIB/subscriptions.sh"
 
 config_load "$PODKOP_CONFIG"
 
@@ -134,6 +135,7 @@ start_main() {
     # sing-box
     sing_box_init_config
     config_foreach add_cron_job "section"
+    subscription_cron_install
     /etc/init.d/sing-box start
 
     log "Nice"
@@ -154,6 +156,7 @@ stop_main() {
     fi
 
     remove_cron_job
+    (crontab -l | grep -v '/usr/bin/podkop subscription_update_all') | crontab -
 
     rm -f "$TMP_RULESET_FOLDER"/*
 
@@ -662,8 +665,10 @@ configure_outbound_handler() {
 
             i=1
             for link in $selector_proxy_links; do
-                config="$(sing_box_cf_add_proxy_outbound "$config" "$section-$i" "$link" "$udp_over_tcp")"
-                outbound_tag="$(get_outbound_tag_by_section "$section-$i")"
+                local node_section
+                node_section=$(subscription_node_section "$section" "$link" "$i")
+                config="$(sing_box_cf_add_proxy_outbound "$config" "$node_section" "$link" "$udp_over_tcp")"
+                outbound_tag="$(get_outbound_tag_by_section "$node_section")"
                 if [ -z "$outbound_tags" ]; then
                     outbound_tags="$outbound_tag"
                     default_outbound="$outbound_tag"
@@ -709,8 +714,10 @@ configure_outbound_handler() {
 
             i=1
             for link in $urltest_proxy_links; do
-                config="$(sing_box_cf_add_proxy_outbound "$config" "$section-$i" "$link" "$udp_over_tcp")"
-                outbound_tag="$(get_outbound_tag_by_section "$section-$i")"
+                local node_section
+                node_section=$(subscription_node_section "$section" "$link" "$i")
+                config="$(sing_box_cf_add_proxy_outbound "$config" "$node_section" "$link" "$udp_over_tcp")"
+                outbound_tag="$(get_outbound_tag_by_section "$node_section")"
                 if [ -z "$outbound_tags" ]; then
                     outbound_tags="$outbound_tag"
                 else
@@ -1290,6 +1297,11 @@ configure_section_mixed_proxy() {
 }
 
 sing_box_save_config() {
+    if [ -n "$SUBSCRIPTION_CHECK_PATH" ]; then
+        sing_box_cm_save_config_to_file "$config" "$SUBSCRIPTION_CHECK_PATH"
+        sing_box_config_check "$SUBSCRIPTION_CHECK_PATH"
+        return
+    fi
     local sing_box_config_path temp_file_path current_config_hash temp_config_hash
     config_get sing_box_config_path "settings" "config_path"
     temp_file_path="$(mktemp)"
@@ -1889,6 +1901,7 @@ show_config() {
         -e 's/\(list urltest_proxy_links\).*/\1 '\''MASKED'\''/g' \
         -e 's/\(list urltest_fallback_links\).*/\1 '\''MASKED'\''/g' \
         -e 's/\(list selector_proxy_links\).*/\1 '\''MASKED'\''/g' \
+        -e 's/\(option subscription_url\).*/\1 '\''MASKED'\''/g' \
         -e "s@\\(option dns_server '[^/]*\\)/[^']*'@\\1/MASKED'@g" \
         -e "s@\\(option domain_resolver_dns_server '[^/]*\\)/[^']*'@\\1/MASKED'@g" \
         -e 's/\(option yacd_secret_key\).*/\1 '\''MASKED'\''/g' \
@@ -2709,6 +2722,8 @@ Available commands:
     restart                 Restart podkop service
     main                    Run main podkop process
     list_update             Update domain lists
+    subscription_update SECTION  Refresh a saved subscription
+    subscription_status SECTION  Show subscription refresh status
     check_proxy             Check proxy connectivity
     check_nft               Check NFT rules
     check_nft_rules         Check NFT rules status
@@ -2732,6 +2747,15 @@ EOF
 }
 
 case "$1" in
+subscription_update)
+    subscription_update "$2"
+    ;;
+subscription_status)
+    subscription_status "$2"
+    ;;
+subscription_update_all)
+    config_foreach subscription_update_scheduled "section"
+    ;;
 start)
     start
     ;;
